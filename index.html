@@ -1,0 +1,290 @@
+<meta name='viewport' content='width=device-width, initial-scale=1'/><!DOCTYPE html>
+<html lang="de">
+<head>
+  <meta charset="UTF-8">
+  <title>Ernährungstagebuch & Gewicht</title>
+  <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
+  <style>
+    body { font-family: sans-serif; margin: 20px; }
+    h1 { margin-bottom: 10px; }
+    h2 { margin-top: 20px; }
+    input, button, select, textarea { margin: 5px 0; padding: 8px; font-size: 16px; width: 100%; max-width: 400px; }
+    textarea { width: 100%; height: 60px; }
+    .meal { border: 1px solid #ccc; padding: 10px; margin: 10px 0; border-radius: 5px; }
+    .history-day { margin-bottom: 20px; border-bottom: 1px solid #ccc; padding-bottom: 10px; }
+    .delete-btn { background: #d9534f; color: white; border: none; padding: 5px 10px; margin-top: 5px; cursor: pointer; border-radius: 3px; }
+    img { max-width: 150px; display: block; margin-top: 5px; border-radius: 4px; }
+    /* Tabs */
+    .tab { display: inline-block; padding: 10px 20px; cursor: pointer; background: #eee; border: 1px solid #ccc; border-bottom: none; margin-right: 5px; border-radius: 5px 5px 0 0; }
+    .tab.active { background: white; font-weight: bold; }
+    .tab-content { border: 1px solid #ccc; padding: 15px; display: none; }
+    .tab-content.active { display: block; }
+  </style>
+</head>
+<body>
+  <h1>📖 Tagebuch</h1>
+
+  <!-- Tabs -->
+  <div>
+    <div class="tab active" onclick="showTab('nutrition')">🍽 Ernährung</div>
+    <div class="tab" onclick="showTab('weight')">⚖️ Gewicht</div>
+  </div>
+
+  <!-- Ernährung Tab -->
+  <div id="nutrition" class="tab-content active">
+    <h2>Datum:</h2>
+    <select id="date-nutrition"></select>
+
+    <div id="meals"></div>
+    <button onclick="addMeal()">+ Mahlzeit hinzufügen</button><br><br>
+
+    <button onclick="saveNutrition()">💾 Speichern</button>
+    <button onclick="exportNutrition()">⬇️ Export nach Excel</button>
+
+    <h2>Verlauf</h2>
+    <div id="history-nutrition"></div>
+  </div>
+
+  <!-- Gewicht Tab -->
+  <div id="weight" class="tab-content">
+    <h2>Datum:</h2>
+    <select id="date-weight"></select>
+
+    <label>Gewicht (kg):</label>
+    <input id="weight-input" type="number" inputmode="decimal" step="0.1"><br>
+
+    <button onclick="saveWeight()">💾 Speichern</button>
+    <button onclick="exportWeight()">⬇️ Export nach Excel</button>
+
+    <h2>Verlauf Gewicht</h2>
+    <div id="history-weight"></div>
+  </div>
+
+  <script>
+    // --- Tabs ---
+    function showTab(id) {
+      document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+      document.querySelectorAll('.tab-content').forEach(c => c.classList.remove('active'));
+      document.querySelector('.tab[onclick="showTab(\''+id+'\')"]').classList.add('active');
+      document.getElementById(id).classList.add('active');
+    }
+
+    // --- Datumsauswahl ---
+    const today = new Date();
+    function populateDateSelect(id) {
+      const sel = document.getElementById(id);
+      sel.innerHTML = "";
+      for (let i = 0; i < 30; i++) {
+        const d = new Date();
+        d.setDate(today.getDate() - i);
+        const str = d.toISOString().split('T')[0];
+        const opt = document.createElement("option");
+        opt.value = str;
+        opt.textContent = str;
+        if (i === 0) opt.selected = true;
+        sel.appendChild(opt);
+      }
+    }
+    populateDateSelect("date-nutrition");
+    populateDateSelect("date-weight");
+
+    // --- Mahlzeit hinzufügen ---
+    function addMeal(name="", desc="", kcal="", taste="", img="") {
+      const container = document.createElement("div");
+      container.className = "meal";
+      container.innerHTML = `
+        <label>Mahlzeit:</label>
+        <select>
+          <option ${name==="Frühstück"?"selected":""}>Frühstück</option>
+          <option ${name==="Mittagessen"?"selected":""}>Mittagessen</option>
+          <option ${name==="Abendessen"?"selected":""}>Abendessen</option>
+          <option ${name==="Snack"?"selected":""}>Snack</option>
+          <option ${name==="Sonstiges"?"selected":""}>Sonstiges</option>
+        </select><br>
+
+        <label>Was wurde gegessen?</label>
+        <textarea>${desc}</textarea><br>
+
+        <label>Kalorien (ca.):</label>
+        <input type="number" inputmode="decimal" step="1" value="${kcal}"><br>
+
+        <label>Hat es geschmeckt?</label>
+        <select>
+          <option value="" ${taste===""?"selected":""}></option>
+          <option value="Ja" ${taste==="Ja"?"selected":""}>Ja</option>
+          <option value="Nein" ${taste==="Nein"?"selected":""}>Nein</option>
+        </select><br>
+
+        <label>Foto:</label>
+        <input type="file" accept="image/*" onchange="previewImage(this)">
+        ${img ? `<img src="${img}">` : ""}
+      `;
+      document.getElementById("meals").appendChild(container);
+    }
+
+function previewImage(input) {
+  if (input.files && input.files[0]) {
+    const file = input.files[0];
+    const reader = new FileReader();
+
+    reader.onload = e => {
+      const img = new Image();
+      img.onload = () => {
+        // Create a canvas
+        const canvas = document.createElement("canvas");
+        const MAX_WIDTH = 800; // scale down max width
+        const scaleSize = MAX_WIDTH / img.width;
+        canvas.width = MAX_WIDTH;
+        canvas.height = img.height * scaleSize;
+
+        const ctx = canvas.getContext("2d");
+        ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+
+        // Export compressed JPEG (70% quality)
+        const compressedDataUrl = canvas.toDataURL("image/jpeg", 0.085);
+
+        // Show preview
+        let preview = input.parentNode.querySelector("img");
+        if (!preview) {
+          preview = document.createElement("img");
+          input.parentNode.appendChild(preview);
+        }
+        preview.src = compressedDataUrl;
+      };
+      img.src = e.target.result;
+    };
+
+    reader.readAsDataURL(file);
+  }
+}
+
+    // --- Ernährung speichern (append) ---
+    function saveNutrition() {
+      const date = document.getElementById("date-nutrition").value;
+      const mealDivs = document.querySelectorAll("#meals .meal");
+      const newMeals = [];
+
+      mealDivs.forEach(div => {
+        const selects = div.querySelectorAll("select");
+        const textarea = div.querySelector("textarea");
+        const kcalInput = div.querySelector("input[type=number]");
+        const img = div.querySelector("img");
+        newMeals.push({
+          meal: selects[0].value,
+          desc: textarea.value,
+          kcal: kcalInput.value,
+          taste: selects[1].value,
+          img: img ? img.src : "",
+          mood: ""
+        });
+      });
+
+      const data = JSON.parse(localStorage.getItem("nutrition") || "{}");
+      if (!data[date]) data[date] = { meals: [] };
+      data[date].meals = data[date].meals.concat(newMeals);
+
+      localStorage.setItem("nutrition", JSON.stringify(data));
+      loadNutritionHistory();
+
+      document.getElementById("meals").innerHTML = "";
+      alert("Gespeichert!");
+    }
+
+    // --- Ernährung Verlauf ---
+    function loadNutritionHistory() {
+      const data = JSON.parse(localStorage.getItem("nutrition") || "{}");
+      const historyDiv = document.getElementById("history-nutrition");
+      historyDiv.innerHTML = "";
+
+      Object.keys(data).sort().reverse().forEach(date => {
+        const entry = data[date];
+        const dayDiv = document.createElement("div");
+        dayDiv.className = "history-day";
+        let html = `<strong>${date}</strong><br>`;
+        entry.meals.forEach((m, i) => {
+          html += `<u>${m.meal}</u>: ${m.desc} (${m.kcal} kcal) – Geschmeckt? ${m.taste || "-"}<br>`;
+          if (m.img) html += `<img src="${m.img}"><br>`;
+          html += `Stimmung: 
+            <select onchange="updateMood('${date}',${i},this.value)">
+              <option value="" ${m.mood===""?"selected":""}></option>
+              <option value="Sehr gut" ${m.mood==="Sehr gut"?"selected":""}>Sehr gut</option>
+              <option value="Gut" ${m.mood==="Gut"?"selected":""}>Gut</option>
+              <option value="Mittelmäßig" ${m.mood==="Mittelmäßig"?"selected":""}>Mittelmäßig</option>
+              <option value="Schlecht" ${m.mood==="Schlecht"?"selected":""}>Schlecht</option>
+              <option value="Sehr schlecht" ${m.mood==="Sehr schlecht"?"selected":""}>Sehr schlecht</option>
+              <option value="Mecces an Daternacht" ${m.mood==="Mecces an Daternacht"?"selected":""}>Mecces an Daternacht</option>
+            </select><br><br>`;
+        });
+        dayDiv.innerHTML = html;
+        historyDiv.appendChild(dayDiv);
+      });
+    }
+
+    function updateMood(date, index, mood) {
+      const data = JSON.parse(localStorage.getItem("nutrition") || "{}");
+      if (data[date] && data[date].meals[index]) {
+        data[date].meals[index].mood = mood;
+        localStorage.setItem("nutrition", JSON.stringify(data));
+      }
+    }
+
+    // --- Gewicht speichern ---
+    function saveWeight() {
+      const date = document.getElementById("date-weight").value;
+      const weight = document.getElementById("weight-input").value;
+      if (!weight) return alert("Bitte Gewicht eingeben!");
+
+      const data = JSON.parse(localStorage.getItem("weight") || "{}");
+      data[date] = weight;
+      localStorage.setItem("weight", JSON.stringify(data));
+      loadWeightHistory();
+      document.getElementById("weight-input").value = "";
+      alert("Gespeichert!");
+    }
+
+    // --- Gewicht Verlauf ---
+    function loadWeightHistory() {
+      const data = JSON.parse(localStorage.getItem("weight") || "{}");
+      const historyDiv = document.getElementById("history-weight");
+      historyDiv.innerHTML = "";
+      Object.keys(data).sort().reverse().forEach(date => {
+        historyDiv.innerHTML += `<strong>${date}</strong>: ${data[date]} kg<br>`;
+      });
+    }
+
+    // --- Exporte ---
+    function exportNutrition() {
+      const nutrition = JSON.parse(localStorage.getItem("nutrition") || "{}");
+      const sheetData = [["Datum","Mahlzeit","Beschreibung","Kalorien","Geschmeckt?","Stimmung","Foto (Base64)"]];
+      Object.keys(nutrition).sort().forEach(date => {
+        const e = nutrition[date];
+        if (e.meals.length > 0) {
+          e.meals.forEach(m => {
+            sheetData.push([date, m.meal, m.desc, m.kcal, m.taste, m.mood || "", m.img ? m.img.substring(0,50)+"..." : ""]);
+          });
+        }
+      });
+      const wb = XLSX.utils.book_new();
+      const ws = XLSX.utils.aoa_to_sheet(sheetData);
+      XLSX.utils.book_append_sheet(wb, ws, "Ernährung");
+      XLSX.writeFile(wb, "ernaehrung.xlsx");
+    }
+
+    function exportWeight() {
+      const weight = JSON.parse(localStorage.getItem("weight") || "{}");
+      const sheetData = [["Datum","Gewicht (kg)"]];
+      Object.keys(weight).sort().forEach(date => {
+        sheetData.push([date, weight[date]]);
+      });
+      const wb = XLSX.utils.book_new();
+      const ws = XLSX.utils.aoa_to_sheet(sheetData);
+      XLSX.utils.book_append_sheet(wb, ws, "Gewicht");
+      XLSX.writeFile(wb, "gewicht.xlsx");
+    }
+
+    // Init
+    loadNutritionHistory();
+    loadWeightHistory();
+  </script>
+</body>
+</html>
